@@ -71,16 +71,30 @@ def font(kind: str, size: float) -> ImageFont.FreeTypeFont:
             path = _REG
         else:                                    # pragma: no cover
             raise ValueError(kind)
-        _fonts[key] = ImageFont.truetype(path, max(1, int(round(size * SS))))
+        ft = ImageFont.truetype(path, max(1, int(round(size * SS))))
+        ft.caps = kind in ("bold", "cond")
+        _fonts[key] = ft
     return _fonts[key]
+
+
+def render(text: str, f: ImageFont.FreeTypeFont) -> str:
+    """The string as it is actually drawn. Headlines are set in caps, so a
+    fit that measures the mixed-case copy understates the width and lets the
+    type come out smaller than it could be."""
+    return text.upper() if getattr(f, "caps", False) else text
 
 
 def tw(text: str, f: ImageFont.FreeTypeFont, tracking: float = 0.0) -> float:
     """Width of `text` in base pixels, including letterspacing."""
     if not text:
         return 0.0
-    total = sum(f.getlength(ch) for ch in text) / SS
+    total = sum(f.getlength(ch) for ch in render(text, f)) / SS
     return total + tracking * (len(text) - 1)
+
+
+def cap_h(f: ImageFont.FreeTypeFont) -> float:
+    """Height of the drawn caps, which is the type size the eye reads."""
+    return f.getmetrics()[0] / SS
 
 
 def balanced_wrap(text: str, f: ImageFont.FreeTypeFont, limit: float,
@@ -359,37 +373,33 @@ def draw_lead_picto(p: Pen, box) -> None:
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
     grey = PAL["steel"]
-
-    # swept-wing bomber, top view, nose to the left
-    by = y0 + 0.17 * h
-    bh = 0.17 * h
-    p.polygon([(x0 + 0.02 * w, by),
-               (x0 + 0.12 * w, by - 0.32 * bh),
-               (x0 + 0.55 * w, by - 0.36 * bh),
-               (x0 + 0.82 * w, by - 0.24 * bh),
-               (x0 + 0.97 * w, by),
-               (x0 + 0.82 * w, by + 0.22 * bh),
-               (x0 + 0.55 * w, by + 0.32 * bh),
-               (x0 + 0.12 * w, by + 0.28 * bh)], fill=grey)
+    # a swept-wing bomber seen from above, flying left
+    by = y0 + 0.18 * h
+    p.polygon([(x0 + 0.01 * w, by),
+               (x0 + 0.17 * w, by - 0.20 * h),
+               (x0 + 0.76 * w, by - 0.20 * h),
+               (x0 + 0.96 * w, by),
+               (x0 + 0.76 * w, by + 0.20 * h),
+               (x0 + 0.17 * w, by + 0.20 * h)], fill=grey)
     for sign in (-1, 1):
-        p.polygon([(x0 + 0.38 * w, by),
-                   (x0 + 0.70 * w, by + sign * 1.62 * bh),
-                   (x0 + 0.82 * w, by + sign * 1.62 * bh),
-                   (x0 + 0.60 * w, by)], fill=grey)
+        p.polygon([(x0 + 0.31 * w, by),
+                   (x0 + 0.55 * w, by + sign * 0.34 * h),
+                   (x0 + 0.77 * w, by + sign * 0.34 * h),
+                   (x0 + 0.63 * w, by)], fill=grey)
         p.polygon([(x0 + 0.86 * w, by),
-                   (x0 + 0.93 * w, by + sign * 0.66 * bh),
-                   (x0 + 0.97 * w, by + sign * 0.66 * bh),
-                   (x0 + 0.94 * w, by)], fill=grey)
-
+                   (x0 + 0.91 * w, by + sign * 0.20 * h),
+                   (x0 + 0.98 * w, by + sign * 0.20 * h),
+                   (x0 + 0.95 * w, by)], fill=grey)
+    p.ellipse([x0 + 0.13 * w, by - 0.025 * h,
+               x0 + 0.20 * w, by + 0.025 * h], fill=PAL["amber"])
     # three dashed arcs falling from the aircraft to the city
-    ay0 = y0 + 0.34 * h
-    ay1 = y0 + 0.82 * h
-    for fx in (0.20, 0.44, 0.68):
-        cx = x0 + (fx + 0.05) * w
-        rx = 0.055 * w
+    ay0 = y0 + 0.38 * h
+    ay1 = y0 + 0.84 * h
+    for fx in (0.12, 0.34, 0.56):
+        cx = x0 + fx * w
+        rx = 0.05 * w
         p.dash_arc([cx - rx, ay0, cx + rx, ay1], 250, 470,
-                   PAL["amber"], 1.5, dash=46, gap=54)
-
+                   PAL["amber"], 1.7, dash=42, gap=40)
     # city row, one block lit
     base = y1 - 1.0
     heights = (0.34, 0.50, 0.26, 0.62, 0.40, 0.72, 0.30, 0.48, 0.36, 0.56)
@@ -397,11 +407,9 @@ def draw_lead_picto(p: Pen, box) -> None:
     gap = 0.020 * w
     for i, hh in enumerate(heights):
         bx = x0 + 0.02 * w + i * (bw + gap)
-        top = base - hh * (y1 - ay1 + 0.24 * h)
+        top = base - hh * 0.13 * h
         col = PAL["amber"] if i == 5 else PAL["block"]
         p.rect([bx, top, bx + bw, base], fill=col)
-
-
 # --------------------------------------------------------------------------
 # layout
 # --------------------------------------------------------------------------
@@ -411,6 +419,7 @@ RIGHT = BASE - MX
 CONTENT = RIGHT - MX
 
 LEAD_TOP, LEAD_BOT = 160, 400
+DETAIL_LEAD = 1.24         # detail leading, relative to the detail size
 GRID_TOP, GRID_BOT = 410, 986
 GUT = 12
 COLS, ROWSN = 3, 3
@@ -433,7 +442,7 @@ LEAD_BODY_LINES = ("Explosions at 1:25 a.m. as Tu-160 bombers",
 CARDS = [
     ("TECH & MARKETS", "ANTHROPIC IPO ABOVE $2 TRILLION",
      "Largest listing ever, ahead of SpaceX", "bars"),
-    ("WORLD COURT", "ICJ: MYANMAR COMMITTED GENOCIDE",
+    ("WORLD COURT", "ICJ: MYANMAR DID COMMIT GENOCIDE",
      "Ruling on the 2017 Rohingya campaign", "gavel"),
     ("SOUTH ASIA", "CYCLONE AKVAN NEARS INDIA",
      "Red alerts in Odisha; ten trains cancelled", "cyclone"),
@@ -445,15 +454,18 @@ CARDS = [
      "$61,876 as the sell-off deepens", "down"),
     ("CLIMATE", "DRAFT NAMES NO FOSSIL FUELS",
      "Revised COP31 text omits them again", "leaf"),
-    ("LATIN AMERICA", "COLOMBIA PROTESTS, SECOND TIME",
-     "Nationwide march against the president", "crowd"),
+    ("LATIN AMERICA", "COLOMBIA PROTESTS AGAIN",
+     "Second nationwide march against the president", "crowd"),
     ("ARCTIC", "DENMARK RATIFIES GREENLAND DEAL",
      "The Arctic deal with Washington", "iceberg"),
 ]
 
 
 # a break that keeps 'NAMES NO' together so 'names' is read as the verb
-PREFERRED_BREAKS = {6: ("DRAFT NAMES NO", "FOSSIL FUELS")}
+PREFERRED_BREAKS = {0: ("ANTHROPIC IPO", "ABOVE $2 TRILLION"),
+                    6: ("DRAFT NAMES NO", "FOSSIL FUELS"),
+                    7: ("COLOMBIA", "PROTESTS AGAIN"),
+                    8: ("DENMARK RATIFIES", "GREENLAND DEAL")}
 
 
 def build() -> Image.Image:
@@ -519,14 +531,17 @@ def build() -> Image.Image:
                           f"/{ix1 - ix0:.0f}")
 
     # pictogram, lower right of the lead card
-    pw = 300.0
-    py1 = iy1 - 2
-    py0 = py1 - 72
+    pw = 360.0
     px1 = ix1
     px0 = px1 - pw
+    base_y = iy1 - 4
+    max_h = base_y - b2 - 26
+    ph = min(155.0, max_h)
+    py1 = base_y
+    py0 = py1 - ph
     require(py0 >= b2 + 14, "lead pictogram would touch the headline")
     draw_lead_picto(p, (px0, py0, px1, py1))
-    note("lead pictogram", f"{pw:.0f}x{py1 - py0:.0f} at x {px0:.0f}..{px1:.0f}"
+    note("lead pictogram", f"{pw:.0f}x{ph:.0f} at x {px0:.0f}..{px1:.0f}"
                            f", y {py0:.0f}..{py1:.0f}")
 
     # body line(s), left of the pictogram
@@ -558,10 +573,10 @@ def build() -> Image.Image:
 
     def detail_for(text: str, room: float):
         """Largest detail setting that fits the room left under the headline."""
-        for s in (15, 14.5, 14):
+        for s in (17, 16.5, 16, 15.5, 15, 14.5, 14):
             f = font("reg", s)
             for maxl in (1, 2):
-                if round(s * 1.26) * maxl > room:
+                if round(s * DETAIL_LEAD) * maxl > room:
                     continue
                 lines = balanced_wrap(text, f, INNER_W, maxl)
                 if lines and len(lines) <= maxl:
@@ -573,6 +588,12 @@ def build() -> Image.Image:
         f = font("bold", s)
         lh = round(s * 1.16)
         trial, deep, complete = [], 0, True
+        for idx, (_r, headline, _d, _i) in enumerate(CARDS):
+            h = len(PREFERRED_BREAKS.get(idx, ())) or len(
+                balanced_wrap(headline, f, INNER_W, 3) or ())
+            if h * lh > CARD_H - PAD - TOP_OFF - 2 * round(17 * DETAIL_LEAD):
+                complete = False
+                break
         for idx, (_region, headline, detail, _icon) in enumerate(CARDS):
             lines = None
             pref = PREFERRED_BREAKS.get(idx)
@@ -584,6 +605,11 @@ def build() -> Image.Image:
                 complete = False
                 break
             deep += len(lines) == 3
+            widest_line = max(tw(t, f) for t in lines)
+            # a block that fills its measure reads as a deliberate stack; a
+            # narrow one reads as an accident, so the column must be mostly used
+            if widest_line < 0.66 * INNER_W:
+                complete = False
             room = (CARD_H - PAD) - TOP_OFF - lh * len(lines) - 4
             ds, dl = detail_for(detail, room)
             trial.append((f, lh, lines, ds, dl))
@@ -633,7 +659,7 @@ def build() -> Image.Image:
         require(widest <= INNER_W, f"card {idx + 1} headline too wide")
 
         if dlines:
-            dlh = round(dsize * 1.26)
+            dlh = round(dsize * DETAIL_LEAD)
             # detail sits a constant distance under the headline, so the nine
             # cards keep one internal rhythm
             first_b = y + 6 + round(dsize * 0.80)
@@ -656,6 +682,8 @@ def build() -> Image.Image:
     fw = tw(FOOTER, ff, ftr)
     fy = 1010
     require(fy - 13 >= GRID_BOT + 10, "footer crowds the grid")
+    require(TOP_OFF + grid_size * 1.16 * 3 + 8 <= CARD_H - PAD,
+            "headline block leaves no room for detail")
     p.tracked((BASE / 2, fy), FOOTER, ff, PAL["foot"], ftr, anchor="ms")
     note("footer", f"12.5px, track {ftr}, w={fw:.0f}, centred, baseline {fy}")
 
