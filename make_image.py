@@ -692,8 +692,9 @@ def build() -> Image.Image:
 
 def main() -> int:
     img = build()
-    out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "entry.png")
+    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "entry.png")
     img.save(out_path, "PNG", optimize=True, compress_level=7)
 
     size = os.path.getsize(out_path)
